@@ -50,63 +50,8 @@ EOF
     fi
 }
 
-build_bootstrapper()
+custom_extract()
 {
-    # Build Clang
-    mkdir "$1/boot_clang"; cd "$1/boot_clang"
-    tar -xf "$DOWNLOAD_DIR/llvm-<LLVM>.src.tar.xz" -C .
-    tar -xf "$DOWNLOAD_DIR/cfe-<LLVM>.src.tar.xz" -C .
-    mv llvm-<LLVM>.src llvm
-    mv cfe-<LLVM>.src llvm/tools/clang
-    mkdir build; cd build
-    cmake -DCMAKE_INSTALL_PREFIX="$1/clang-bootstrap" \
-          -DCMAKE_BUILD_TYPE="Release" \
-          -DLLVM_TARGETS_TO_BUILD="X86" \
-          -DBUILD_SHARED_LIBS="on" \
-          -Wno-dev \
-          ../llvm
-    if [ $? -ne 0 ]; then echo 'Failed to configure llvm/clang bootstrap'; cleanup 1; fi
-    make -j $MOOSE_JOBS
-    if [ $? -ne 0 ]; then echo 'Failed to build llvm/clang bootstrap'; cleanup 1; fi
-    make install
-    if [ $? -ne 0 ]; then echo 'Failed to install llvm/clang bootstrap'; cleanup 1; fi
-    export PATH="$1/clang-bootstrap/bin:$PATH"
-    export LD_LIBRARY_PATH="$1/clang-bootstrap/lib:$LD_LIBRARY_PATH"
-
-    # Build libc++ libraries
-    mkdir "$1/boot_libcxx"; cd "$1/boot_libcxx"
-    tar -xf "$DOWNLOAD_DIR/llvm-<LLVM>.src.tar.xz" -C .
-    tar -xf "$DOWNLOAD_DIR/libcxx-<LLVM>.src.tar.xz" -C .
-    tar -xf "$DOWNLOAD_DIR/libcxxabi-<LLVM>.src.tar.xz" -C .
-    mkdir build; cd build
-    SYS_C_PATH=$(echo $(echo $(echo | cpp -xc++ -Wp,-v 2>&1 | grep "^\ " | grep "c++" | sed -e 's/ //g') | sed -e 's/\ /;/g')\;)
-    if [ -z "$SYS_C_PATH" ]; then echo 'Failed to understand where system c++ includes are located'; cleanup 1; fi
-    CC=clang CXX=clang++ cmake -G "Unix Makefiles" \
-      -DLIBCXX_CXX_ABI="libstdc++" \
-      -DLIBCXX_CXX_ABI_INCLUDE_PATHS="$SYS_C_PATH" \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX="$1/clang-bootstrap" \
-      -Wno-dev \
-      ../llvm/projects/libcxx
-    if [ $? -ne 0 ]; then echo 'Failed to configure llvm/libcxx bootstrap'; cleanup 1; fi
-    make cxx
-    if [ $? -ne 0 ]; then echo 'Failed to build llvm/libcxx bootstrap'; cleanup 1; fi
-    make install
-    if [ $? -ne 0 ]; then echo 'Failed to install llvm/libcxx bootstrap'; cleanup 1; fi
-}
-
-pre_run() {
-    unset MODULEPATH
-    source "$PACKAGES_DIR/Modules/<MODULES>/init/bash"
-    module load advanced_modules cmake miniconda gcc
-
-    # Build the necessary clang bootstrapper required to build the entire LLVM project
-    build_bootstrapper "$1"
-
-    # Extract/Move LLVM, Clang, LLDB, Clang-Extras, compiler-rt, libcxx/abi, openmp
-    # !!! NOTE: Order is important !!!
-    cd "$1"
-    LLVM_PACKAGES=(llvm cfe lldb clang-tools-extra compiler-rt libcxx libcxxabi openmp)
     for LLVM_PACKAGE in ${LLVM_PACKAGES[*]}; do
       tar -xf "$DOWNLOAD_DIR/$LLVM_PACKAGE-<LLVM>.src.tar.xz" -C .
       if [ $? -ne 0 ]; then echo 'Failed to extract '$LLVM_PACKAGE; cleanup 1; fi
@@ -122,6 +67,76 @@ pre_run() {
           mv $LLVM_PACKAGE-<LLVM>.src llvm/projects/$LLVM_PACKAGE
       fi
     done
+}
+
+build_bootstrapper()
+{
+    # Build bootstrap-clang
+    mkdir "$1/boot_clang"; cd "$1/boot_clang"
+    if [ `uname` = "Darwin" ]; then
+        LLVM_PACKAGES=(llvm cfe libcxx libcxxabi)
+    else
+        LLVM_PACKAGES=(llvm cfe)
+    fi
+    custom_extract
+    mkdir build; cd build
+    cmake -DCMAKE_INSTALL_PREFIX="$1/clang-bootstrap" \
+          -DCMAKE_BUILD_TYPE="Release" \
+          -DLLVM_TARGETS_TO_BUILD="X86" \
+          -DBUILD_SHARED_LIBS="ON" \
+          -Wno-dev \
+          ../llvm
+    if [ $? -ne 0 ]; then echo 'Failed to configure llvm/clang bootstrap'; cleanup 1; fi
+    make -j $MOOSE_JOBS
+    if [ $? -ne 0 ]; then echo 'Failed to build llvm/clang bootstrap'; cleanup 1; fi
+    make install
+    if [ $? -ne 0 ]; then echo 'Failed to install llvm/clang bootstrap'; cleanup 1; fi
+    export PATH="$1/clang-bootstrap/bin:$PATH"
+
+    # bootstrapper Post-install
+    if [ `uname` = "Darwin" ]; then
+        cd "$1/clang-bootstrap/lib"
+        change_links
+    else
+        export LD_LIBRARY_PATH="$1/clang-bootstrap/lib:$LD_LIBRARY_PATH"
+    fi
+
+    # Build bootstrap-libc++ libraries
+    if [ `uname` = "Linux" ]; then
+        mkdir "$1/boot_libcxx"; cd "$1/boot_libcxx"
+        LLVM_PACKAGES=(llvm libcxx libcxxabi)
+        custom_extract
+        mkdir build; cd build
+        SYS_C_PATH=$(echo $(echo $(echo | cpp -xc++ -Wp,-v 2>&1 | grep "^\ " | grep "c++" | sed -e 's/ //g') | sed -e 's/\ /;/g')\;)
+        if [ -z "$SYS_C_PATH" ]; then echo 'Failed to understand where system c++ includes are located'; cleanup 1; fi
+        CC=clang CXX=clang++ cmake -G "Unix Makefiles" \
+          -DLIBCXX_CXX_ABI="libstdc++" \
+          -DLIBCXX_CXX_ABI_INCLUDE_PATHS="$SYS_C_PATH" \
+          -DCMAKE_BUILD_TYPE="Release" \
+          -DCMAKE_INSTALL_PREFIX="$1/clang-bootstrap" \
+          -Wno-dev \
+          ../llvm/projects/libcxx
+        if [ $? -ne 0 ]; then echo 'Failed to configure llvm/libcxx bootstrap'; cleanup 1; fi
+        make cxx -j $MOOSE_JOBS
+        if [ $? -ne 0 ]; then echo 'Failed to build llvm/libcxx bootstrap'; cleanup 1; fi
+        make install
+        if [ $? -ne 0 ]; then echo 'Failed to install llvm/libcxx bootstrap'; cleanup 1; fi
+    fi
+}
+
+pre_run() {
+    unset MODULEPATH
+    source "$PACKAGES_DIR/Modules/<MODULES>/init/bash"
+    module load advanced_modules cmake miniconda gcc
+
+    # Build the necessary clang bootstrapper required to build the entire LLVM project
+    build_bootstrapper "$1"
+
+    # !!! NOTE: Order is important !!!
+    # Extract/Move LLVM, Clang, LLDB, Clang-Extras, compiler-rt, libcxx/abi, openmp
+    cd "$1"
+    LLVM_PACKAGES=(llvm cfe lldb clang-tools-extra compiler-rt libcxx libcxxabi openmp)
+    custom_extract
 
     # Enable RTTI. Apparently this needs to be exported while running make
     # https://llvm.org/docs/Packaging.html
@@ -132,16 +147,14 @@ pre_run() {
     if [ `uname` != "Darwin" ]; then
         CC=clang CXX=clang++ cmake -DCMAKE_INSTALL_PREFIX="$PACKAGES_DIR/$PACKAGE" \
           -DCMAKE_INSTALL_RPATH:STRING="$PACKAGES_DIR/$PACKAGE/lib" \
-          -DCMAKE_BUILD_WITH_INSTALL_RPATH=1 \
+          -DCMAKE_BUILD_WITH_INSTALL_RPATH="1" \
           -DCLANG_DEFAULT_CXX_STDLIB="libc++" \
-          -DLIBCXXABI_USE_COMPILER_RT="ON" \
           -DLLVM_ENABLE_LIBCXX="ON" \
-          -DLLVM_ENABLE_LIBCXXABI="ON" \
-          -DLLVM_ENABLE_ASSERTIONS=ON \
-          -DLLVM_ENABLE_RTTI=ON \
+          -DCMAKE_BUILD_WITH_INSTALL_RPATH=1 \
+          -DLLVM_ENABLE_ASSERTIONS="ON" \
+          -DLLVM_ENABLE_RTTI="ON" \
           -DCMAKE_BUILD_TYPE="Release" \
           -DPYTHON_EXECUTABLE=`which python2.7` \
-          -DLLDB_DISABLE_PYTHON=0 \
           -DLLVM_TARGETS_TO_BUILD="X86" \
           -Wno-dev \
           ../llvm
@@ -154,16 +167,15 @@ pre_run() {
         cp "$CODESIGN_CERT" "$PACKAGES_DIR/$PACKAGE/codesign/moose_codesign.cert"
         echo "$CODESIGN_NAME" > "$PACKAGES_DIR/$PACKAGE/codesign/codesign_name"
       fi
-      CC=clang CXX=clang++ make -DCMAKE_INSTALL_PREFIX="$PACKAGES_DIR/$PACKAGE" \
-        -DLLVM_BUILD_EXTERNAL_COMPILER_RT=ON \
+      CC=clang CXX=clang++ cmake -DCMAKE_INSTALL_PREFIX="$PACKAGES_DIR/$PACKAGE" \
+        -DLLVM_BUILD_EXTERNAL_COMPILER_RT="ON" \
         -DLLDB_CODESIGN_IDENTITY=$CODESIGN_NAME \
         -DCLANG_DEFAULT_CXX_STDLIB="libc++" \
         -DLIBCXXABI_USE_COMPILER_RT="ON" \
         -DLLVM_ENABLE_LIBCXX="ON" \
-        -DLLVM_ENABLE_LIBCXXABI="ON" \
-        -DLLDB_DISABLE_PYTHON=0 \
-        -DLLVM_ENABLE_RTTI=ON \
-        -DCLANG_DEFAULT_OPENMP_RUNTIME=libomp \
+        -DLLDB_DISABLE_PYTHON="0" \
+        -DLLVM_ENABLE_RTTI="ON" \
+        -DCLANG_DEFAULT_OPENMP_RUNTIME="libomp" \
         -DPYTHON_EXECUTABLE=`which python2.7` \
         -DCMAKE_BUILD_TYPE="Release" \
         -DLLVM_TARGETS_TO_BUILD="X86" \

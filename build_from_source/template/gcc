@@ -34,9 +34,9 @@ pre_run() {
     # ./contrib/download_prerequisites
 
     if [ `uname` != "Darwin" ]; then
-        CONFIGURE="../<GCC>/configure --prefix=$PACKAGES_DIR/<GCC> --disable-multilib --enable-languages=c,c++,fortran,jit --enable-checking=release --enable-host-shared --with-pic"
+        CONFIGURE="../<GCC>/configure --prefix=$PACKAGES_DIR/<GCC> --disable-multilib --enable-languages=c,c++,fortran --enable-checking=release --enable-host-shared --with-pic"
     else
-        CONFIGURE="../<GCC>/configure --prefix=$PACKAGES_DIR/<GCC> --enable-languages=c,c++,fortran,jit --enable-checking=release --enable-host-shared --with-pic"
+        CONFIGURE="../<GCC>/configure --prefix=$PACKAGES_DIR/<GCC> --enable-languages=c,c++,fortran --enable-checking=release --enable-host-shared --with-pic"
 
         # Patch Darwin gcc for JIT linking issue: https://gcc.gnu.org/ml/jit/2015-q3/msg00147.html
         cat << 'EOF' > darwin-jit.patch
