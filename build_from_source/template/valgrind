@@ -34,7 +34,7 @@ diff -ruN a/coregrind/m_syscall.c b/coregrind/m_syscall.c
  #include "pub_core_vkiscnums.h"
  #include "pub_core_syscall.h"
 +#define __private_extern__ extern
- 
+
  /* ---------------------------------------------------------------------
     Building syscall return values.
 diff -ruN a/coregrind/m_syswrap/syswrap-darwin.c b/coregrind/m_syswrap/syswrap-darwin.c
@@ -47,7 +47,7 @@ diff -ruN a/coregrind/m_syswrap/syswrap-darwin.c b/coregrind/m_syswrap/syswrap-d
 +#define __private_extern__ extern
 +
  typedef HChar name_t[BOOTSTRAP_MAX_NAME_LEN];
- 
+
  typedef uint64_t mig_addr_t;
 diff -ruN a/coregrind/vg_preloaded.c b/coregrind/vg_preloaded.c
 --- a/coregrind/vg_preloaded.c	2016-10-21 04:37:40.000000000 -0600
@@ -57,7 +57,7 @@ diff -ruN a/coregrind/vg_preloaded.c b/coregrind/vg_preloaded.c
  #include "pub_core_debuginfo.h"  // Needed for pub_core_redir.h
  #include "pub_core_redir.h"      // For VG_NOTIFY_ON_LOAD
 +#define __private_extern__ extern
- 
+
  #if defined(VGO_linux) || defined(VGO_solaris)
 EOF
     patch -p1 < darwin.patch
@@ -77,6 +77,7 @@ post_run() {
 set          BASE_PATH          "$PACKAGES_DIR"
 
 prepend-path     PATH      "\$BASE_PATH/<VALGRIND>/bin"
+setenv		 VALGRIND_DIR "\$BASE_PATH/<VALGRIND>"
 EOF
 }
 
